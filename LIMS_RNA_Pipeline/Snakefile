@@ -1,0 +1,329 @@
+# vim: ft=python
+import os
+import glob
+import itertools
+from collections import defaultdict
+import pandas
+import configparser
+#import sample_sheet
+# sample_sheet is unable to pull in Index2 and Sample_Project columns in the sample sheet,
+# using a simple parse for now - maybe come back to sample_sheet in the future
+import BackupQCReport
+
+configfile: 'rnaqc_config.yaml'
+workdir: os.environ['PWD']
+shell.executable('bash')
+
+
+# The running flag is created in the wrapper
+runningflag = 'RNA.QC.Running'
+completeflag = 'RNA.QC.Complete'
+
+# check Run.ini for the samplesheet file name
+runini = configparser.ConfigParser()
+runini.read('../Run.ini')
+samplesheet = runini['File']['Samplesheet']
+
+# commented out for now - maybe use sample_sheet in the future
+# use sample_sheet to parse samples names from samplesheet.csv
+#ss = sample_sheet.SampleSheet(samplesheet) # I am so sorry for this line XD
+#sampleIDs = [x['Sample_Name'] for x in ss.samples]
+
+with open(samplesheet, 'r') as ssfile:
+    # identify which lines to skip before reading in the Data table
+    # the [Data] line may have commas or may not, so this identifies the proper line
+    sslines = ssfile.readlines()
+    dataline = [x for x in sslines if x.startswith('[Data]')][0]
+    skiphere = sslines.index(dataline)
+
+dfss = pandas.read_table(samplesheet, sep=',', skiprows=skiphere+1)
+sampleIDs = dfss.Sample_Name.tolist()
+
+# Kristie's final table needs 4 columns at the beginning:
+# Sample, Barcode (Index-Index2), Lane, Project
+projID = dfss['Sample_Project'].unique().tolist()[0].replace('Project_', '')
+
+# Get Project ID List -->
+vProjectID = [tmpID.replace('Project_', '') for tmpID in dfss['Sample_Project'].unique().tolist()]
+print("vProjectID:", vProjectID)
+# <--
+
+mrID = 'MR-' + projID[2:6]
+dfss['Barcode'] = dfss['Index'] + '-' + dfss['Index2']
+dfss['Project'] = projID
+dfss['Lane'] = 1
+dfss['sampleID'] = dfss['Sample_Name'] # This column will get renamed to 'Sample' after all the merging
+dflims = dfss[['sampleID', 'Barcode', 'Lane', 'Project']]
+
+print(mrID, projID)
+
+
+# get the run ID from /Data/Illumina/HiSeq/PostRun_Analysis/Data/191018_A00423_0050_AHGCTTDRXX/RNA_QC
+runID = os.environ['PWD'].split('/')[-2]
+
+
+rule all:
+    input: completeflag
+
+# use a function to identify input fastqs to circumvent barcodes irregularities
+def input_fastq(wildcards):
+    fnames = glob.glob(config['fq_glob']  %wildcards.sampleID) # the %s wildcard is already in the config string
+    return sorted(fnames) # make sure R1 is first
+
+
+rule merge_fastqs:
+    input: input_fastq
+    output:
+        'merged/{sampleID}_merged_R1.fastq.gz',
+        'merged/{sampleID}_merged_R2.fastq.gz'
+    threads: 4
+    params: 
+        r1 = config['pair_id'][0],
+        r2 = config['pair_id'][1]
+    run:
+        r1 = [x for x in input if params.r1 in x]
+        r2 = [x for x in input if params.r2 in x] 
+        shell('cat %s > {output[0]}' %' '.join(r1))
+        shell('cat %s > {output[1]}' %' '.join(r2))
+
+
+rule cutadapt:
+    input: rules.merge_fastqs.output
+    output:
+        r1 = 'trimmed/{sampleID}_trimmed_R1.fastq.gz',
+        r2 = 'trimmed/{sampleID}_trimmed_R2.fastq.gz'
+    log: 'multiqc/cutadapt/{sampleID}.cutadapt.log'
+    threads: 16
+    params: adapter = config['adapter_fa']
+    run:
+        shell('cutadapt -b {params.adapter} -B {params.adapter} \
+            --cores={threads} \
+            --minimum-length=20 \
+            -q 20 \
+            -o {output.r1} \
+            -p {output.r2} \
+            {input} > {log}')
+
+
+rule fastqc:
+    input: rules.cutadapt.output
+    output: 
+        r1 = 'fastqc/{sampleID}_trimmed_R1_fastqc.zip',
+        r2 = 'fastqc/{sampleID}_trimmed_R2_fastqc.zip'
+    threads: 8
+    run:
+        shell('fastqc {input} -t {threads} --outdir=fastqc')
+
+
+rule star_aligner:
+    input: rules.cutadapt.output
+    output:
+        log = 'star/{sampleID}/{sampleID}_Log.final.out',
+        bam = 'star/{sampleID}/{sampleID}_Aligned.sortedByCoord.out.bam',
+        counts = 'star/{sampleID}/{sampleID}_ReadsPerGene.out.tab'
+    params:
+        pref = 'star/{sampleID}/{sampleID}',
+        star_idx = config['star_idx'],
+        gtf = config['gencode_gtf']
+    threads: 16
+    run:
+        shell('STAR --genomeDir {params.star_idx} \
+            --quantMode GeneCounts \
+            --sjdbGTFfile {params.gtf} \
+            --runThreadN {threads} \
+            --readFilesCommand zcat \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMattrRGline ID:{wildcards.sampleID} SM:none \
+            --readFilesIn {input} \
+            --outFileNamePrefix {params.pref}_')
+
+
+rule rnaseqc:
+    input: rules.star_aligner.output.bam
+    output: 'rnaseqc/{sampleID}.metrics.tsv'
+    threads: 10 # this is to prevent them from all piling onto the same node
+    params:
+        outdir = 'rnaseqc',
+        ref = config['hg_ref'],
+        ann = config['gencode_collapsed']
+    run:
+        shell('rnaseqc {params.ann} \
+            {input} \
+            {params.outdir} \
+            -s {wildcards.sampleID} \
+            --coverage \ ')
+
+
+rule cat_rnaseqc:
+    input: expand('rnaseqc/{sampleID}.metrics.tsv', sampleID=sampleIDs)
+    output: 'reports/rnaseqc_summary.tsv'
+    run:
+        dfs = []
+        for fname in input:
+            temp = pandas.read_csv(fname, sep='\t', header=None, index_col=0)
+            temp = temp.transpose()
+            dfs.append(temp)
+
+        df = pandas.concat(dfs)
+        df.to_csv(output[0], sep='\t', index=False)
+
+
+# The # threads is for the garbage collector and only really needs 4 or 5, but
+# setting 12 here prevents the handler from putting all the jobs on one node.
+# This can change once we get the new SLURM set up.
+rule picard_dupes:
+    input: rules.star_aligner.output.bam
+    output:
+        bam = 'picard/{sampleID}_marked_duplicates.bam',
+        metric = 'picard/{sampleID}_marked_dup_metrics.txt'
+    threads: 12
+    run:
+        shell('picard MarkDuplicates \
+            -Xmx4G \
+            I={input} \
+            O={output.bam} \
+            M={output.metric} \
+            ASSUME_SORT_ORDER=coordinate \
+            -XX:ParallelGCThreads={threads}')
+
+
+rule multiqc_fastqc:
+    input: expand('fastqc/{sampleID}_trimmed_R1_fastqc.zip', sampleID=sampleIDs)
+    output: 
+        'multiqc/fastqc_report_data/multiqc_fastqc.txt',
+        'multiqc/fastqc_report_data/multiqc_general_stats.txt',
+        'multiqc/fastqc_report_data/mqc_fastqc_overrepresented_sequencesi_plot_1.txt'
+    run:
+        shell('multiqc multiqc/cutadapt fastqc -f -p -n fastqc_report -o multiqc')
+
+
+rule multiqc_mapping:
+    input: expand('picard/{sampleID}_marked_dup_metrics.txt', sampleID=sampleIDs)
+    output:
+        'multiqc/mapping_report_data/multiqc_star.txt',
+        'multiqc/mapping_report_data/multiqc_picard_dups.txt'
+    run:
+        shell('multiqc star picard -f -n mapping_report -o multiqc')
+
+
+rule lims_table:
+    input:
+        fastqc1 = 'multiqc/fastqc_report_data/multiqc_fastqc.txt',
+        fastqc2 = 'multiqc/fastqc_report_data/multiqc_general_stats.txt',
+        fastqc3 = 'multiqc/fastqc_report_data/mqc_fastqc_overrepresented_sequencesi_plot_1.txt',
+        star = 'multiqc/mapping_report_data/multiqc_star.txt',
+        picard = 'multiqc/mapping_report_data/multiqc_picard_dups.txt',
+        rnaseqc = 'reports/rnaseqc_summary.tsv'
+    output: '%s_qc_lims_table.txt' %runID
+    params:
+        greater = config['flag_greater'],
+        less = config['flag_less']
+    run:
+        # sorry for the lack of df1, this was copy pasted from another rule elsewhere
+        df2 = pandas.read_csv(input.fastqc1, sep='\t')
+        df2['sampleID'] = df2['Filename'].apply(lambda x: x.rsplit('_', 2)[0])
+        df2['Average Sequence Length'] = df2['avg_sequence_length']
+        df2['ReadPair'] = df2['Sample'].apply(lambda x: x.split('_')[-1])
+        df2_1 = df2[df2['ReadPair'] == 'R1'].copy()
+        df2_2 = df2[df2['ReadPair'] == 'R2'].copy()
+        df2 = df2_1.merge(df2_2, on=['sampleID', 'Total Sequences'], suffixes=('_R1', '_R2'))
+
+        df3 = pandas.read_csv(input.fastqc2, sep='\t')
+        df3 = df3[df3['Sample'].str.contains('trimmed')]
+        df3['sampleID'] = df3['Sample'].apply(lambda x: x.split(' | ')[-1].rsplit('_', 2)[0])
+        df3['% Duplicates'] = df3['FastQC_mqc-generalstats-fastqc-percent_duplicates']
+        df3['% FASTQC failed reads'] = df3['FastQC_mqc-generalstats-fastqc-percent_fails']
+        df3['ReadPair'] = df3['Sample'].apply(lambda x: x.split('_')[-1])
+        df3_1 = df3[df3['ReadPair'] == 'R1'].copy()
+        df3_2 = df3[df3['ReadPair'] == 'R2'].copy()
+        df3 = df3_1.merge(df3_2, on='sampleID', suffixes=('_R1', '_R2'))
+
+        df4 = pandas.read_csv(input.star, sep='\t')
+        df4.rename(columns = {'Sample':'sampleID'}, inplace=True)
+
+        df5 = pandas.read_csv(input.picard, sep='\t')
+        df5.rename(columns = {'Sample':'sampleID'}, inplace=True)
+
+        df6 = pandas.read_csv(input.fastqc3, sep='\t')
+        df6['sampleID'] = df6['Sample'].apply(lambda x: x.rsplit('_', 2)[0])
+        df6['ReadPair'] = df6['Sample'].apply(lambda x: x.split('_')[-1])
+        df6_1 = df6[df6['ReadPair'] == 'R1'].copy()
+        df6_2 = df6[df6['ReadPair'] == 'R2'].copy()
+        df6 = df6_1.merge(df6_2, on='sampleID', suffixes=('_R1', '_R2'))
+
+        df7 = pandas.read_csv(input.rnaseqc, sep='\t')
+        df7.rename(columns = {'Sample':'sampleID'}, inplace=True)
+
+
+        df = df2[['sampleID', 'Total Sequences', '%GC_R1', '%GC_R2', 'Average Sequence Length_R1', 'Average Sequence Length_R2']].merge(df3[['sampleID', '% Duplicates_R1', '% Duplicates_R2', '% FASTQC failed reads_R1', '% FASTQC failed reads_R2']], on='sampleID')
+        df = df.merge(df6, on='sampleID') # fix the order someday
+        df = df.merge(df4, on='sampleID', suffixes=('', '_star'))
+        df = df.merge(df5, on='sampleID', suffixes=('', '_picard'))
+        df = df.merge(df7, on='sampleID', suffixes=('', '_rnaseqc'))
+
+
+        # check specific metrics to flag questionable samples
+        def check_flags(row):
+            flags = []
+            for colname in list(params.greater.keys()):
+                if row[colname] > params.greater[colname]:
+                    flags.append(colname)
+            for colname in list(params.less.keys()):
+                if row[colname] < params.less[colname]:
+                    flags.append(colname)
+            return ', '.join(flags)
+
+        df['flags'] = df.apply(lambda row: check_flags(row), axis=1)
+        oldcols = df.columns.tolist()
+        oldcols.remove('flags')
+        newcols = ['flags'] + oldcols
+        df = df[newcols] # put the flags at the beginning
+
+        # tack on the 4 columns for lims
+        df = dflims.merge(df, on='sampleID')
+
+        # remove the barcodes from the sample names so that LIMS can import the table
+        df['Sample'] = df['sampleID'].apply(lambda x: x.rsplit('-', 2)[0])
+        df.drop(['sampleID'], axis=1, inplace=True)
+
+        # fix the order of the columns
+        newcols2 = df.columns.tolist() #these names suck, sorry
+        newcols2.remove('Sample')
+        newcols2 = ['Sample'] + list(newcols2)
+        df = df[newcols2]
+
+
+        df.to_csv(output[0], sep='\t', index=False)
+
+        shell("sed -i '1s/^/Run ID\\t%s\\n/' {output}" %runID)
+
+
+
+rule export_conda:
+    input: '../Run.ini'
+    output: 'rnaseq_qc_env.yaml'
+    run:
+        shell('conda env export > {output}')
+
+
+rule copy_lims_table:
+    input:
+        rules.lims_table.output,
+        samplesheet
+    output:
+        dropbox = '/CGF/Laboratory/LIMS/drop-box-prod/RNAsequenceqc/%s_qc_lims_table.txt' %runID,
+        reports = expand('/CGF/Laboratory/Projects/%s/{tmpProjID}/Reports/%s_qc_lims_table.txt' %(mrID, runID), tmpProjID=vProjectID, allow_missing=False)
+    run:
+        print("rules.lims_table.output:", rules.lims_table.output)
+        print("qc report              :", runID + "_qc_lims_table.txt")
+        print("samplesheet            :", samplesheet)
+        BackupQCReport.BackupReport(samplesheet, runID + "_qc_lims_table.txt", mrID, runID)
+
+rule complete_flag:
+    input: 
+        rules.lims_table.output,
+        rules.export_conda.output,
+        rules.copy_lims_table.output
+    output: completeflag
+    run:
+        shell('touch {runningflag}; rm {runningflag}; touch {output}')

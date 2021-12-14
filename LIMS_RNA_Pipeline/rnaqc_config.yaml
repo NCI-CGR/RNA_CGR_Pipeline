@@ -1,0 +1,38 @@
+# This pipeline assumes that the Snakefile is being run from the directory "RNA_QC"
+# inside the project run directory /CGF/Sequencing/Illumina/HiSeq/PostRun_Analysis/Data/{Date}_{Run_Info}
+# It assumes there is a CASAVA directory with demultiplexed but untrimmed fastqs.
+
+fq_glob: '../CASAVA/L*/Project*/*%s/*001.fastq.gz' # the Snakefile will insert the sampleID wildcard
+pair_id: # unique string to differentiate R1 and R2 files
+    - '_R1_00'
+    - '_R2_00'
+
+adapter_fa: file:/CGF/Sequencing/Analysis/Research/RD_reference/illumina/adapters.fa
+
+# STAR parameters for hg38
+hg_ref: /CGF/Sequencing/Analysis/Research/RD_reference/star/STAR_hg38_ucsc/ref.fa
+star_idx: /CGF/Sequencing/Analysis/Research/RD_reference/star/STAR_hg38_ucsc
+gencode_gtf: /CGF/Sequencing/Analysis/Research/RD_reference/gencode/gencode.v35.annotation.gtf
+gencode_collapsed: /CGF/Sequencing/Analysis/Research/RD_reference/gencode/gencode.v35.annotation.collapsed.gtf
+
+
+# QC thresholds for raising flags
+# The key should be the column name in the LIMS table
+flag_greater: # fail if number is greater than this
+    '%GC_R1': 60
+    '% Duplicates_R1': 70
+    'Sum of remaining over-represented sequences_R1': 5
+    'rRNA Rate': 1.5
+
+flag_less: # fail if the number is less than this
+    'Total Reads': 50000000
+    'uniquely_mapped_percent': 70
+    'Exonic Rate': 0.25
+    'Intragenic Rate': 0.4
+    'Genes Detected': 18000
+    
+
+
+
+
+

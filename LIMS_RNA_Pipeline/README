@@ -1,0 +1,16 @@
+This pipeline is a quick QC pipeline that will automatically run when an RNA-seq flow cell has finished sequencing.
+
+The goal is to provide the sequencing group immediate feedback on the quality of the run by producing a table
+that will automatically be imported into LIMS.
+
+This directory should be copied into the sequencing run directory; 
+    e.g. /Illumina/HiSeq/PostRun_Analysis/Data/191018_A00423_0050_AHGCTTDRXX/
+
+The pipeline should be started by running the submit.sh file, which submits the wrapper to the cluster.
+
+All paths are relative to LIMS_RNA_Pipeline, so no modifications to code need to be made between runs.
+
+The wrapper will create a file called RNA.QC.Running (can be changed), 
+and the Snakefile will replace it with RNA.QC.Complete when it finishes.
+
+

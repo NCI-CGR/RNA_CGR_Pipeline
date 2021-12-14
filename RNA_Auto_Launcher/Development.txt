@@ -1,0 +1,23 @@
+09/11/2020 (need to discuss with Mia next week)
+
+1: Interface:
+
+how to call "Submit.sh"
+
+/DCEG/Projects/Exome/SequencingData/DAATeam/RNAPipeline/Mia/Submit.sh /DCEG/CGF/Sequencing/Illumina/MiSeq/PostRun_Analysis/Data/200820_M01354_0001_000000000-J2527
+
+2: I would write a new tag in "LIMS_RNA_Pipeline" to define if the email has been sent 
+
+   flag_email_sent_done
+   
+3: Email Notification list
+
+   who should be included 
+   
+4; For archived RNA data 
+
+   (1) Read only, we cannot create the folder "LIMS_RNA_Pipeline" in the same folder of the flowcell directely. 
+
+5: For testing purpose: 
+
+/DCEG/CGF/Sequencing/Illumina/MiSeq/PostRun_Analysis/Data/200820_M01354_0001_000000000-J2527

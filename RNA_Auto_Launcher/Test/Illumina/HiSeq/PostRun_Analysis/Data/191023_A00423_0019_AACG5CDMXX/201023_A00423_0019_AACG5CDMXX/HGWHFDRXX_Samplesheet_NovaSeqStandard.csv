@@ -1,0 +1,30 @@
+[Header],,,,,,,,,
+IEMFileVersion,4,,,,,,,,
+Investigator Name,Mila,,,,,,,,
+Experiment Name,HGWHFDRXX,,,,,,,,
+Date,12/18/2019,,,,,,,,
+Workflow,GenerateFASTQ,,,,,,,,
+Application,HiSeq FASTQ Only,,,,,,,,
+Assay,TruSeq LT,,,,,,,,
+Description,,,,,,,,,
+Chemistry,Default,,,,,,,,
+,,,,,,,,,
+[Reads],,,,,,,,,
+101,,,,,,,,,
+101,,,,,,,,,
+,,,,,,,,,
+[Settings],,,,,,,,,
+Adapter,AGATCGGAAGAGCACACGTCTGAACTCCAGTCA,,,,,,,,
+AdapterRead2,AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT,,,,,,,,
+,,,,,,,,,
+[Data],,,,,,,,,
+Sample_ID,Sample_Name,Sample_Plate,Sample_Well,17_Index_ID,Index,15_Index_ID,Index2,Sample_Project,Description
+Sample_V16,V16,,,,CTACGGCA,,CCTCGTAG,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_V30,V30,,,,GAAGAGGC,,AAGTGCTA,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_V8,V8,,,,AAGAAGCG,,GTAGATAA,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_C10_16,C10_16,,,,AAGAGAGC,,CAGCCAGT,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_C10_30,C10_30,,,,CCACAATG,,CGTTGACG,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_C10_8,C10_8,,,,TGAACAGG,,GAGAACAA,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_C20_16,C20_16,,,,CATTGCAC,,CATGCAGC,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_C20_30,C20_30,,,,GATTCCTT,,CATAGGCA,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq
+Sample_C20_8,C20_8,,,,CGGATAAC,,GCCGAACG,Project_Whole_Transcriptome_RNA-seq,SampleType=DNAExome;AnalysisPipeline=Population-Germline;CaptureKit=Whole_Transcriptome_UTR_RNA-seq

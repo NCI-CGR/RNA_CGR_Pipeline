@@ -1,0 +1,7 @@
+#!/bin/bash -l
+set -o pipefail
+
+# new system, load necessary modules
+. /etc/profile.d/modules.sh
+
+module load sge/2011.11p1 gcc python3/3.7.0
